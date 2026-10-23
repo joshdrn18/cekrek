@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1020"><title>Cek Rekening — GGapi</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+*{box-sizing:border-box}body{font-family:Inter,ui-sans-serif,system-ui;background:radial-gradient(ellipse at 15% 0%,#1e3a8a55,transparent 38%),radial-gradient(ellipse at 100% 100%,#4338ca30,transparent 35%),#080d19;color:#e5e7eb}
+.panel{background:#111827e8;border:1px solid #273449;box-shadow:0 24px 80px #0006}.field{width:100%;background:#0b1220;border:1px solid #334155;border-radius:12px;padding:13px 14px;color:#f8fafc;outline:none}.field:focus{border-color:#60a5fa;box-shadow:0 0 0 3px #3b82f633}.btn{background:linear-gradient(135deg,#3b82f6,#4f46e5);border-radius:12px;padding:13px 16px;font-weight:700;color:white}.btn:disabled{opacity:.55}.muted{color:#94a3b8}
+</style></head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+<main class="w-full max-w-lg py-8">
+<header class="flex items-center justify-between mb-6">
+<div class="flex items-center gap-3"><div class="w-11 h-11 rounded-2xl bg-blue-600 grid place-items-center text-xl font-black">G</div><div><b class="text-xl tracking-tight">GGapi<span class="text-blue-400">.</span></b><p class="text-xs muted">ACCOUNT VERIFICATION</p></div></div>
+<a class="text-sm text-blue-300 hover:text-white" href="/admin.html">Admin ↗</a>
+</header>
+<section class="panel rounded-3xl overflow-hidden">
+<div class="p-7 sm:p-8 bg-gradient-to-br from-slate-900 to-blue-950/70">
+<span class="inline-flex items-center gap-2 text-xs rounded-full px-3 py-1.5 bg-white/5 border border-white/10 text-blue-200"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> Bank & E-Wallet</span>
+<h1 class="text-3xl font-extrabold mt-4">Cek Rekening<span class="text-blue-400">.</span></h1>
+<p class="muted text-sm leading-6 mt-2">Periksa nama pemilik sebelum transaksi. Hasil ditampilkan hanya jika dikonfirmasi oleh provider.</p>
+</div>
+<form id="checkForm" class="p-6 sm:p-8 space-y-5">
+<div><label for="type" class="block text-sm font-semibold mb-2">Jenis layanan</label><select id="type" class="field"><option value="bank">Bank</option><option value="ewallet">E-Wallet</option></select></div>
+<div><label for="code" class="block text-sm font-semibold mb-2">Bank / E-Wallet</label><select id="code" class="field" required><option value="">Memuat katalog…</option></select><p id="catalogMsg" class="muted text-xs mt-2">Daftar dimuat dari backend.</p></div>
+<div><label for="account" class="block text-sm font-semibold mb-2">Nomor rekening / HP</label><input id="account" class="field" inputmode="numeric" autocomplete="off" maxlength="30" placeholder="Masukkan angka saja" required><p class="muted text-xs mt-2">Jangan masukkan data orang lain tanpa dasar yang sah.</p></div>
+<button id="submit" class="btn w-full" type="submit">Periksa nama rekening</button>
+<div id="result" class="hidden rounded-2xl border p-4" aria-live="polite"></div>
+</form></section>
+<footer class="text-center muted text-xs mt-5">Powered by GGapi · <span id="year"></span></footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);$("year").textContent=new Date().getFullYear();
+let catalogCache={};
+async function loadCatalog(){
+ const type=$("type").value,select=$("code");select.disabled=true;select.replaceChildren(new Option("Memuat…",""));$("catalogMsg").textContent="Mengambil katalog…";
+ try{
+  let items=catalogCache[type];
+  if(!items){const r=await fetch("/api/catalog?type="+encodeURIComponent(type));const d=await r.json();if(!r.ok)throw Error(d.error||"Gagal mengambil katalog");items=d.items;if(!Array.isArray(items))throw Error("Format katalog tidak valid");catalogCache[type]=items;}
+  select.replaceChildren(new Option("Pilih layanan…",""));
+  for(const item of items){if(item.code&&item.name)select.add(new Option(item.name,item.code));}
+  $("catalogMsg").textContent=`${items.length} layanan tersedia.`;
+ }catch(e){select.replaceChildren(new Option("Katalog gagal dimuat",""));$("catalogMsg").textContent=e.message;}
+ finally{select.disabled=false;}
+}
+$("type").addEventListener("change",loadCatalog);loadCatalog();
+$("checkForm").addEventListener("submit",async e=>{
+ e.preventDefault();const account=$("account").value.trim(),code=$("code").value,type=$("type").value,button=$("submit"),result=$("result");
+ if(!code||!/^[0-9]{5,30}$/.test(account)){result.className="rounded-2xl border border-amber-700 bg-amber-950/40 p-4 text-amber-200";result.textContent="Pilih layanan dan masukkan nomor 5–30 digit.";result.classList.remove("hidden");return;}
+ button.disabled=true;button.textContent="Memeriksa…";result.classList.add("hidden");
+ try{
+  const r=await fetch("/api/check",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type,code,account_number:account})});
+  const d=await r.json();if(!r.ok)throw Error(d.error||"Pengecekan gagal");
+  result.className="rounded-2xl border p-4 "+(d.found?"border-emerald-700 bg-emerald-950/40 text-emerald-100":"border-amber-700 bg-amber-950/40 text-amber-100");
+  result.replaceChildren();const title=document.createElement("p");title.className="font-bold";title.textContent=d.found?"Rekening ditemukan":"Nama belum terverifikasi";result.append(title);
+  const desc=document.createElement("p");desc.className="text-sm mt-2 break-words";desc.textContent=d.found?(d.account_name||"Provider tidak mengirim nama"):"Provider tidak menemukan rekening yang valid.";result.append(desc);
+  const meta=document.createElement("p");meta.className="text-xs mt-3 opacity-70";meta.textContent=(d.service_name||code)+" · "+account;result.append(meta);
+  result.classList.remove("hidden");
+ }catch(err){result.className="rounded-2xl border border-rose-700 bg-rose-950/40 p-4 text-rose-200";result.textContent=err.message;result.classList.remove("hidden");}
+ finally{button.disabled=false;button.textContent="Periksa nama rekening";}
+});
+</script></body></html>
